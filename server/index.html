@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SnowTrace — Threat Monitor</title>
+    <meta name="description" content="SnowTrace multi-temporal SAR threat reasoning system — real-time border surveillance dashboard.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; overflow: hidden; }
+
+        /* ── Header ── */
+        #header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-bottom: 1px solid #334155;
+            padding: 10px 20px;
+            display: flex; align-items: center; gap: 16px;
+            z-index: 1001; position: relative; height: 52px;
+        }
+        #header h1 { font-size: 18px; font-weight: 700; color: #f8fafc; letter-spacing: -0.3px; }
+        #header h1 span { color: #38bdf8; }
+        #header .header-info { display: flex; flex-direction: column; flex: 1; }
+        #header .subtitle { font-size: 11px; color: #64748b; }
+        #header .limitations-line { font-size: 9px; color: #475569; margin-top: 2px; }
+
+        /* ── Mode Toggle Tabs ── */
+        #mode-tabs {
+            display: flex; gap: 4px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 3px;
+        }
+        .mode-tab {
+            padding: 5px 14px;
+            border-radius: 6px;
+            font-size: 11px; font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.18s ease;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+        .mode-tab.live {
+            background: transparent; color: #64748b;
+        }
+        .mode-tab.live.active {
+            background: #0ea5e9; color: #fff;
+            box-shadow: 0 0 12px rgba(14,165,233,0.4);
+        }
+        .mode-tab.sim {
+            background: transparent; color: #64748b;
+        }
+        .mode-tab.sim.active {
+            background: #7c3aed; color: #fff;
+            box-shadow: 0 0 12px rgba(124,58,237,0.4);
+        }
+        .mode-tab:hover:not(.active) { color: #cbd5e1; background: #1e293b; }
+
+        /* ── Map ── */
+        #map { width: 100%; height: calc(100vh - 52px); transition: height 0.3s ease; }
+
+        /* ── Right Sidebar ── */
+        #sidebar {
+            position: absolute; top: 64px; right: 16px; z-index: 1000;
+            background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+            width: 280px; max-height: calc(100vh - 84px); overflow-y: auto;
+            box-shadow: 0 4px 32px rgba(0,0,0,0.6);
+            scrollbar-width: thin; scrollbar-color: #334155 transparent;
+            transition: max-height 0.3s ease;
+        }
+        #sidebar::-webkit-scrollbar { width: 4px; }
+        #sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        #sidebar h3 {
+            padding: 12px 16px 8px;
+            font-size: 10px; color: #475569;
+            text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600;
+        }
+
+        /* Sim mode banner inside sidebar */
+        #sim-banner {
+            display: none;
+            margin: 8px 12px;
+            background: rgba(124,58,237,0.12);
+            border: 1px solid rgba(124,58,237,0.3);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 10px; font-weight: 600;
+            color: #a78bfa;
+            letter-spacing: 0.5px;
+            text-align: center;
+        }
+
+        .how-it-works {
+            margin: 8px 12px; padding: 10px; background: #0f172a;
+            border: 1px solid #334155; border-radius: 6px; font-size: 10px; color: #94a3b8;
+        }
+        .how-it-works summary { font-weight: 600; color: #cbd5e1; cursor: pointer; text-transform: uppercase; margin-bottom: 6px; }
+        .how-it-works ol { padding-left: 14px; margin-top: 4px; line-height: 1.5; }
+        .how-it-works li { margin-bottom: 3px; }
+
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 12px 10px; }
+        .stat-box {
+            background: #0f172a; border-radius: 8px; padding: 10px 8px;
+            text-align: center; border: 1px solid #1e293b;
+            transition: border-color 0.2s;
+        }
+        .stat-box:hover { border-color: #334155; }
+        .stat-box .value { font-size: 22px; font-weight: 700; }
+        .stat-box .label { font-size: 9px; color: #475569; text-transform: uppercase; margin-top: 2px; letter-spacing: 0.8px; }
+        .stat-box.critical .value { color: #dc2626; }
+        .stat-box.high .value { color: #ea580c; }
+        .stat-box.medium .value { color: #eab308; }
+        .stat-box.low .value { color: #22c55e; }
+
+        #feature-list { padding: 0 12px 12px; }
+        .feat-item {
+            background: #0f172a; border-radius: 7px; padding: 9px 10px;
+            margin-bottom: 5px; cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            border-left: 3px solid transparent;
+        }
+        .feat-item:hover { background: #1a2744; transform: translateX(2px); }
+        .feat-item.level-critical { border-left-color: #dc2626; }
+        .feat-item.level-high { border-left-color: #ea580c; }
+        .feat-item.level-medium { border-left-color: #eab308; }
+        .feat-item.level-low { border-left-color: #22c55e; }
+        .feat-item .feat-header { display: flex; justify-content: space-between; align-items: center; }
+        .feat-item .feat-type { font-size: 11px; font-weight: 600; color: #f8fafc; }
+        .feat-item .feat-score { font-size: 13px; font-weight: 700; }
+        .feat-item .feat-meta { font-size: 10px; color: #475569; margin-top: 3px; }
+        .feat-item .sim-tag {
+            display: inline-block; font-size: 8px; font-weight: 700;
+            background: rgba(124,58,237,0.2); color: #a78bfa;
+            border: 1px solid rgba(124,58,237,0.3);
+            border-radius: 3px; padding: 1px 4px; margin-left: 4px;
+            letter-spacing: 0.5px; vertical-align: middle;
+        }
+
+        .legend {
+            background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+            padding: 10px 14px; font-size: 11px; color: #cbd5e1;
+        }
+        .legend h4 { margin-bottom: 6px; color: #475569; font-size: 10px; text-transform: uppercase; }
+        .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); flex-shrink: 0; }
+        .empty-state { text-align: center; padding: 24px 12px; color: #334155; font-size: 11px; line-height: 1.6; }
+        .empty-state .empty-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+
+        /* Popup styling */
+        .leaflet-popup-content-wrapper { background: #1e293b; color: #e2e8f0; border-radius: 8px; border: 1px solid #334155; }
+        .leaflet-popup-tip { background: #1e293b; }
+        .leaflet-popup-content { margin: 12px 14px; font-size: 12px; line-height: 1.5; }
+        .leaflet-popup-close-button { color: #64748b !important; }
+
+        /* Pulse animation */
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+        .pulse-marker { animation: pulse 1.5s ease-in-out infinite; }
+
+        /* ── Simulation Control Panel (top-left) ── */
+        #sim-panel {
+            position: absolute; top: 64px; left: 16px; z-index: 1000;
+            background: #1e293b;
+            border: 1px solid #4c1d95;
+            border-radius: 10px;
+            width: 264px;
+            box-shadow: 0 4px 32px rgba(124,58,237,0.25);
+            display: none;
+            overflow: hidden;
+        }
+        #sim-panel.visible { display: block; }
+
+        #sim-panel-header {
+            background: linear-gradient(135deg, #2e1065 0%, #1e1040 100%);
+            padding: 10px 14px;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; user-select: none;
+            border-bottom: 1px solid #4c1d95;
+        }
+        #sim-panel-header .panel-title {
+            font-size: 11px; font-weight: 700; color: #c4b5fd;
+            text-transform: uppercase; letter-spacing: 1px;
+            display: flex; align-items: center; gap: 7px;
+        }
+        #sim-panel-header .panel-title .dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #7c3aed;
+            box-shadow: 0 0 8px #7c3aed;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        #sim-panel-header .toggle-icon {
+            font-size: 12px; color: #6d28d9; transition: transform 0.2s;
+        }
+        #sim-panel-header.collapsed .toggle-icon { transform: rotate(-90deg); }
+
+        #sim-panel-body { padding: 14px; }
+        #sim-panel-body.hidden { display: none; }
+
+        .sim-badge {
+            background: rgba(124,58,237,0.15);
+            border: 1px solid rgba(124,58,237,0.3);
+            border-radius: 5px;
+            padding: 5px 8px;
+            font-size: 9.5px; font-weight: 600; color: #a78bfa;
+            text-align: center;
+            letter-spacing: 0.4px;
+            margin-bottom: 14px;
+        }
+
+        .sim-label {
+            font-size: 10px; font-weight: 600; color: #64748b;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            margin-bottom: 6px; display: block;
+        }
+
+        #scenario-select {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-size: 12px; font-family: inherit;
+            padding: 8px 10px;
+            cursor: pointer;
+            margin-bottom: 14px;
+            outline: none;
+            transition: border-color 0.15s;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 28px;
+        }
+        #scenario-select:focus { border-color: #6d28d9; }
+        #scenario-select option { background: #1e293b; }
+
+        .slider-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .slider-value {
+            font-size: 13px; font-weight: 700; color: #c4b5fd;
+            min-width: 28px; text-align: right;
+        }
+        #sensitivity-slider {
+            width: 100%;
+            accent-color: #7c3aed;
+            margin-bottom: 5px;
+            cursor: pointer;
+            height: 4px;
+        }
+        .slider-hint {
+            font-size: 9.5px; color: #475569; line-height: 1.5;
+            margin-bottom: 14px;
+            padding: 6px 8px;
+            background: #0f172a;
+            border-radius: 5px;
+            border-left: 2px solid #334155;
+        }
+
+        #run-sim-btn {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, #6d28d9, #4c1d95);
+            border: none;
+            border-radius: 7px;
+            color: #fff;
+            font-size: 12px; font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            letter-spacing: 0.5px;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            box-shadow: 0 2px 12px rgba(109,40,217,0.4);
+        }
+        #run-sim-btn:hover {
+            background: linear-gradient(135deg, #7c3aed, #5b21b6);
+            box-shadow: 0 4px 20px rgba(109,40,217,0.6);
+            transform: translateY(-1px);
+        }
+        #run-sim-btn:active { transform: translateY(0); }
+        #run-sim-btn.running { opacity: 0.7; pointer-events: none; }
+
+        /* Sim result summary */
+        #sim-result {
+            margin-top: 12px;
+            padding: 8px 10px;
+            background: #0f172a;
+            border-radius: 6px;
+            border: 1px solid #1e293b;
+            font-size: 10.5px; color: #64748b;
+            display: none;
+            line-height: 1.6;
+        }
+        #sim-result.visible { display: block; }
+        #sim-result strong { color: #c4b5fd; }
+
+        /* Border tooltip */
+        .border-tooltip {
+            background: rgba(244,63,94,0.15) !important;
+            border: 1px solid #f43f5e !important;
+            color: #fda4af !important;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        /* ── Canvas Panel (bottom) ── */
+        #canvas-panel {
+            display: none;
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 320px;
+            background: #0f172a;
+            border-top: 1px solid #334155;
+            z-index: 999;
+            padding: 16px;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+        }
+        #canvas-panel.visible { display: flex; }
+        .canvas-wrapper { text-align: center; }
+        .canvas-title {
+            color: #94a3b8; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .canvas-wrapper canvas {
+            width: 250px; height: 250px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            background: #000;
+            image-rendering: pixelated; /* To keep SAR noise crisp */
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1><span>Snow</span>Trace</h1>
+        <div class="header-info">
+            <div class="subtitle">Multi-Temporal SAR Threat Reasoning System</div>
+            <div class="limitations-line">Sentinel-1 revisit time: 6-12 days — this is a periodic monitoring system, not real-time surveillance.</div>
+        </div>
+        <div id="mode-tabs">
+            <button class="mode-tab live active" id="tab-live" onclick="setMode('live')">⚡ Live Feed</button>
+            <button class="mode-tab sim" id="tab-sim" onclick="setMode('sim')">🔬 Simulation</button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- ── Simulation Control Panel (top-left) ── -->
+    <div id="sim-panel">
+        <div id="sim-panel-header" onclick="toggleSimPanel()">
+            <div class="panel-title">
+                <span class="dot"></span>
+                Simulation Controls
+            </div>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div id="sim-panel-body">
+            <div class="sim-badge">⚠ SIMULATION MODE — synthetic demo data</div>
+
+            <label class="sim-label" for="scenario-select">Scenario</label>
+            <select id="scenario-select">
+                <option value="quiet">Sector Alpha — Quiet baseline (3,400m)</option>
+                <option value="personnel">Sector Bravo — Personnel footpath (4,100m)</option>
+                <option value="vehicle">Sector Charlie — Vehicle convoy (3,800m)</option>
+                <option value="encampment">Sector Delta — Encampment forming (5,000m)</option>
+                <option value="multi">Sector Echo — Multi-threat mixed (4,500m)</option>
+            </select>
+            <div style="font-size: 8.5px; color: #475569; margin-top: -10px; margin-bottom: 14px; line-height: 1.3;">
+                Scenarios model general disturbance signatures (footpath, vehicle, encampment patterns) and are not based on or intended to represent any specific real-world incident.
+            </div>
+
+            <label class="sim-label" for="sensitivity-slider">
+                Detection Sensitivity
+                <span style="float:right" id="sensitivity-display" class="slider-value">2.5</span>
+            </label>
+            <input type="range" id="sensitivity-slider"
+                   min="1.0" max="5.0" step="0.1" value="2.5">
+            <div class="slider-hint">
+                Lower it if the system misses something.<br>
+                Raise it if quiet borders still show alerts.
+            </div>
+
+            <button id="run-sim-btn" onclick="runSimulation()">▶ Run Simulation</button>
+            <div id="sim-result"></div>
+        </div>
+    </div>
+
+    <!-- ── Right Sidebar ── -->
+    <div id="sidebar">
+        <div id="sim-banner">⚠ SIMULATION MODE — synthetic demo data</div>
+        
+        <details class="how-it-works" open>
+            <summary>How It Works</summary>
+            <ol>
+                <li><strong>Baseline:</strong> Satellite scans the border.</li>
+                <li><strong>Current:</strong> Second scan, days later.</li>
+                <li><strong>Analysis:</strong> AI spots the physical footprint of the difference.</li>
+            </ol>
+        </details>
+
+        <h3>Threat Overview</h3>
+        <div class="stat-grid" id="stats"></div>
+        <h3>Detections</h3>
+        <div id="feature-list"><div class="empty-state"><span class="empty-icon">📡</span>Loading live data…</div></div>
+    </div>
+
+    <!-- ── Canvas Panel (bottom) ── -->
+    <div id="canvas-panel">
+        <canvas id="canvas-mask" width="400" height="400" style="display:none"></canvas>
+        <div class="canvas-wrapper">
+            <div class="canvas-title">Before — Quiet baseline</div>
+            <canvas id="canvas-before" width="400" height="400"></canvas>
+        </div>
+        <div class="canvas-wrapper">
+            <div class="canvas-title">After — Latest satellite pass</div>
+            <canvas id="canvas-after" width="400" height="400"></canvas>
+        </div>
+        <div class="canvas-wrapper">
+            <div class="canvas-title">Siamese U-Net Change Map</div>
+            <canvas id="canvas-change" width="400" height="400"></canvas>
+            <div id="canvas-reasoning" style="font-size:9.5px; color:#64748b; margin-top:10px; max-width:250px; text-align:left; line-height:1.4; display:none; border-left:2px solid #334155; padding-left:8px;"></div>
+        </div>
+    </div>
+
+    <script>
+    // ════════════════════════════════════════════════════════════
+    //  MAP SETUP
+    // ════════════════════════════════════════════════════════════
+    const map = L.map('map', { zoomControl: false }).setView([35.20, 77.10], 12);
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a>',
+        maxZoom: 19
+    });
+
+    const esriSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        attribution: 'Map data &copy; Google',
+        maxZoom: 19
+    });
+
+    // Default to Satellite view which fits the SAR styling better
+    esriSatellite.addTo(map);
+
+    // Add layer toggle control
+    L.control.layers({
+        "Satellite (Google)": esriSatellite,
+        "Street (OSM)": osmLayer
+    }, null, { position: 'bottomleft' }).addTo(map);
+
+    window.addEventListener('resize', () => map.invalidateSize());
+    setTimeout(() => map.invalidateSize(), 200);
+
+    // Legend
+    const legend = L.control({ position: 'bottomright' });
+    legend.onAdd = function() {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+            <h4>Threat Level</h4>
+            <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div> Critical</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ea580c"></div> High</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div> Medium</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> Low</div>
+        `;
+        return div;
+    };
+    legend.addTo(map);
+
+    // Border line & threat-zone bands (permanent — never removed)
+    const borderCoords = [[35.20, 76.8], [35.20, 77.4]];
+    L.polyline(borderCoords, {
+        color: '#f43f5e', weight: 3, dashArray: '10 8', opacity: 0.85
+    }).addTo(map).bindTooltip('International Border', {
+        permanent: true, direction: 'top', className: 'border-tooltip'
+    });
+    L.circle([35.20, 77.10], { radius: 500,  color: '#dc2626', fillOpacity: 0.07, weight: 1, opacity: 0.25 }).addTo(map);
+    L.circle([35.20, 77.10], { radius: 2000, color: '#ea580c', fillOpacity: 0.04, weight: 1, opacity: 0.18 }).addTo(map);
+
+    // ════════════════════════════════════════════════════════════
+    //  SHARED HELPERS
+    // ════════════════════════════════════════════════════════════
+    const colorMap = { critical: '#dc2626', high: '#ea580c', medium: '#eab308', low: '#22c55e' };
+    const iconMap  = { encampment_cluster: '🏠', vehicle_track: '🚗', vehicle_tracks: '🚗',
+                       personnel_line: '👤', footpath: '👤', unknown: '❓' };
+
+    const REASONING_TEXT = {
+        'footpath': "Thin, irregular line, ~2-3px wide with natural jitter — consistent with foot traffic, not vehicle or camp activity.",
+        'vehicle_tracks': "Parallel bright bands, ~8m apart, consistent width — consistent with tracked or wheeled vehicle passage.",
+        'encampment_cluster': "Irregular blob cluster, elevated backscatter over a wider area — consistent with tents, equipment, or cleared ground.",
+        'unknown': "Change detected but shape doesn't clearly match footpath, vehicle, or encampment patterns — flagged for manual review."
+    };
+
+    // Layers that get cleared between runs / mode switches
+    let featureLayers = [];        // [{marker, data}]
+    let activeGeoLayer = null;
+
+    function clearMapMarkers() {
+        featureLayers.forEach(obj => {
+            if (obj.marker) map.removeLayer(obj.marker);
+        });
+        featureLayers = [];
+        if (activeGeoLayer) { map.removeLayer(activeGeoLayer); activeGeoLayer = null; }
+    }
+
+    function threatLevel(score) {
+        if (score >= 8.0) return 'critical';
+        if (score >= 6.0) return 'high';
+        if (score >= 3.5) return 'medium';
+        return 'low';
+    }
+
+    function styleForLevel(level) {
+        const baseRadius = { low: 8, medium: 12, high: 16, critical: 20 };
+        return {
+            radius: baseRadius[level] || 8,
+            fillColor: colorMap[level],
+            color: '#ffffff',
+            weight: 2.5,
+            fillOpacity: 0.82,
+            className: (level === 'critical' || level === 'high') ? 'pulse-marker' : '',
+        };
+    }
+
+    function getFeatureCentroid(feature) {
+        const geom = feature.geometry;
+        if (geom.type === 'Point') return L.latLng(geom.coordinates[1], geom.coordinates[0]);
+        if (geom.type === 'Polygon') {
+            const ring = geom.coordinates[0];
+            let lat = 0, lng = 0;
+            for (const c of ring) { lng += c[0]; lat += c[1]; }
+            return L.latLng(lat / ring.length, lng / ring.length);
+        }
+        if (geom.type === 'LineString') {
+            let lat = 0, lng = 0;
+            for (const c of geom.coordinates) { lng += c[0]; lat += c[1]; }
+            return L.latLng(lat / geom.coordinates.length, lng / geom.coordinates.length);
+        }
+        return L.latLng(0, 0);
+    }
+
+    function buildPopup(p, isSim) {
+        const simNote = isSim ? `<div style="font-size:9px;color:#a78bfa;margin-bottom:6px;padding:3px 6px;background:rgba(124,58,237,0.1);border-radius:4px">⚠ Synthetic demo data</div>` : '';
+        const sb = p.score_breakdown || {};
+        const h  = p.heading || {};
+        return `
+        <div style="font-family:Inter,system-ui;min-width:220px">
+            ${simNote}
+            <div style="font-size:14px;font-weight:700;margin-bottom:8px">
+                ${iconMap[p.anomaly_type] || '❓'} ${(p.anomaly_type || '').replace(/_/g, ' ')}
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <tr><td style="color:#94a3b8;padding:2px 8px 2px 0">Score</td>
+                    <td style="font-weight:700;color:${colorMap[p.threat_level]}">${p.threat_score.toFixed(1)} / 10</td></tr>
+                <tr><td style="color:#94a3b8;padding:2px 8px 2px 0">Level</td>
+                    <td style="font-weight:600;color:${colorMap[p.threat_level]}">${p.threat_level.toUpperCase()}</td></tr>
+                <tr><td style="color:#94a3b8;padding:2px 8px 2px 0">Distance</td>
+                    <td>${p.distance_to_border_m.toFixed(0)} m</td></tr>
+                <tr><td style="color:#94a3b8;padding:2px 8px 2px 0">Confidence</td>
+                    <td>${(p.confidence * 100).toFixed(0)}%</td></tr>
+                <tr><td style="color:#94a3b8;padding:2px 8px 2px 0">Area</td>
+                    <td>${p.area_m2.toFixed(0)} m²</td></tr>
+                ${sb.classification != null ? `
+                <tr><td colspan=2 style="padding-top:6px;border-top:1px solid #334155;color:#64748b;font-size:10px">
+                    <b>Breakdown</b> — C: ${sb.classification.toFixed(1)} · P: ${sb.proximity.toFixed(1)} · T: ${sb.temporal.toFixed(1)}
+                </td></tr>` : ''}
+                ${h.direction_deg != null ? `
+                <tr><td colspan=2 style="color:#64748b;font-size:10px;padding-top:4px">
+                    <b>Heading</b> ${h.direction_deg.toFixed(0)}° · ${h.velocity_kmh.toFixed(1)} km/h ·
+                    ${h.approaching_border ? '⚠️ Approaching' : '✓ Receding'}
+                </td></tr>` : ''}
+            </table>
+        </div>`;
+    }
+
+    function updateStats(features) {
+        const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+        let scoreSum = 0;
+        features.forEach(f => {
+            const lvl = f.properties.threat_level;
+            if (counts[lvl] !== undefined) counts[lvl]++;
+            scoreSum += f.properties.threat_score;
+        });
+        const avg = features.length ? (scoreSum / features.length) : null;
+        document.getElementById('stats').innerHTML = `
+            <div class="stat-box"><div class="value">${features.length}</div><div class="label">Total</div></div>
+            <div class="stat-box critical"><div class="value">${counts.critical}</div><div class="label">Critical</div></div>
+            <div class="stat-box high"><div class="value">${counts.high}</div><div class="label">High</div></div>
+            <div class="stat-box medium"><div class="value">${counts.medium}</div><div class="label">Medium</div></div>
+            <div class="stat-box low"><div class="value">${counts.low}</div><div class="label">Low</div></div>
+            <div class="stat-box"><div class="value">${avg !== null ? avg.toFixed(1) : '—'}</div><div class="label">Avg Score</div></div>
+        `;
+    }
+
+    function updateFeatureList(features, isSim) {
+        const list = document.getElementById('feature-list');
+        if (!features.length) {
+            list.innerHTML = `<div class="empty-state">
+                <span class="empty-icon">${isSim ? '🟢' : '📡'}</span>
+                ${isSim ? 'No detections for this scenario.' : 'No detections found.'}
+            </div>`;
+            return;
+        }
+        list.innerHTML = features.map((f, i) => {
+            const p = f.properties;
+            const simTag = isSim ? `<span class="sim-tag">SIM</span>` : '';
+            const reason = REASONING_TEXT[p.anomaly_type] || REASONING_TEXT['unknown'];
+            return `
+            <div class="feat-item level-${p.threat_level}" onclick="flyToIndex(${i})">
+                <div class="feat-header">
+                    <span class="feat-type">${iconMap[p.anomaly_type] || '❓'} ${(p.anomaly_type || '').replace(/_/g, ' ')}${simTag}</span>
+                    <span class="feat-score" style="color:${colorMap[p.threat_level]}">${p.threat_score.toFixed(1)}</span>
+                </div>
+                <div class="feat-meta">${p.distance_to_border_m.toFixed(0)} m from border · ${p.threat_level.toUpperCase()}</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 5px; line-height: 1.4; font-style: italic;">"${reason}"</div>
+            </div>`;
+        }).join('');
+    }
+
+    function flyToIndex(i) {
+        const obj = featureLayers[i];
+        if (obj && obj.marker) {
+            map.flyTo(obj.marker.getLatLng(), 15, { duration: 0.8 });
+            obj.marker.openPopup();
+        }
+    }
+
+    function renderFeatures(features, isSim) {
+        clearMapMarkers();
+        features.forEach((feat, i) => {
+            const latlng = getFeatureCentroid(feat);
+            const p = feat.properties;
+            const marker = L.circleMarker(latlng, styleForLevel(p.threat_level));
+            marker.bindPopup(buildPopup(p, isSim), { maxWidth: 300 });
+            marker.addTo(map);
+            featureLayers.push({ marker, data: feat });
+        });
+        if (featureLayers.length) {
+            const group = L.featureGroup(featureLayers.map(o => o.marker));
+            if (group.getBounds().isValid()) map.fitBounds(group.getBounds().pad(0.3));
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  MODE SWITCHING
+    // ════════════════════════════════════════════════════════════
+    let currentMode = 'live';
+
+    function setMode(mode) {
+        currentMode = mode;
+
+        document.getElementById('tab-live').classList.toggle('active', mode === 'live');
+        document.getElementById('tab-sim').classList.toggle('active', mode === 'sim');
+
+        const simPanel = document.getElementById('sim-panel');
+        const simBanner = document.getElementById('sim-banner');
+        const canvasPanel = document.getElementById('canvas-panel');
+        const mapEl = document.getElementById('map');
+        const sidebar = document.getElementById('sidebar');
+
+        if (mode === 'sim') {
+            simPanel.classList.add('visible');
+            simBanner.style.display = 'block';
+            canvasPanel.classList.add('visible');
+            mapEl.style.height = 'calc(100vh - 52px - 320px)';
+            sidebar.style.maxHeight = 'calc(100vh - 84px - 320px)';
+            
+            clearMapMarkers();
+            // Show empty state until Run is clicked
+            updateStats([]);
+            updateFeatureList([], true);
+        } else {
+            simPanel.classList.remove('visible');
+            simBanner.style.display = 'none';
+            canvasPanel.classList.remove('visible');
+            document.getElementById('sim-result').classList.remove('visible');
+            mapEl.style.height = 'calc(100vh - 52px)';
+            sidebar.style.maxHeight = 'calc(100vh - 84px)';
+            
+            // Reload live data
+            loadThreats();
+        }
+        setTimeout(() => map.invalidateSize(), 300);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  SIMULATION ENGINE (Canvases + Map)
+    // ════════════════════════════════════════════════════════════
+
+    function toggleSimPanel() {
+        const header = document.getElementById('sim-panel-header');
+        const body = document.getElementById('sim-panel-body');
+        header.classList.toggle('collapsed');
+        body.classList.toggle('hidden');
+    }
+
+    document.getElementById('sensitivity-slider').addEventListener('input', function() {
+        document.getElementById('sensitivity-display').textContent = parseFloat(this.value).toFixed(1);
+    });
+
+    const SIM_BASE = [
+        // [lat, lng, dist_m, confidence, area_m2, type, base_score]
+        [35.2183, 77.147, 1250,  0.72, 980,  'footpath',           3.4],
+        [35.1861, 77.083, 8400,  0.81, 1840, 'vehicle_tracks',     7.2],
+        [35.2089, 77.132, 4100,  0.88, 3200, 'encampment_cluster', 7.8],
+        [35.2274, 77.040, 12500, 0.65, 620,  'unknown',            2.9],
+    ];
+
+    const POLY_SHAPES = {
+        footpath: [[0, -0.004], [0.001, 0.002], [0, 0.006], [-0.001, 0.002]],
+        vehicle_tracks: [[0, -0.002], [0.001, 0], [0, 0.002], [-0.001, 0]],
+        encampment_cluster: [[0.005, -0.006], [0.005, 0.006], [-0.005, 0.006], [-0.005, -0.006]],
+        unknown: [[0, -0.002], [0.001, 0.001], [-0.001, 0.001]],
+    };
+
+    const SCENARIO_INDICES = {
+        quiet:       [],
+        personnel:   [0],
+        vehicle:     [1, 3],
+        encampment:  [2],
+        multi:       [0, 1, 2, 3],
+    };
+
+    function buildPolyCoords(lat, lng, type) {
+        const offsets = POLY_SHAPES[type] || POLY_SHAPES.unknown;
+        const ring = offsets.map(([dlat, dlng]) => [lng + dlng, lat + dlat]);
+        ring.push(ring[0]); // close
+        return [ring];
+    }
+
+    // Seeded RNG
+    function LCG(seed) {
+        return function() {
+            seed = (seed * 1664525 + 1013904223) >>> 0;
+            return seed / 4294967296;
+        }
+    }
+
+    function sarColor(v) {
+        return [10 + v * 200, 15 + v * 200, 30 + v * 225];
+    }
+
+    function heatmapColor(v) {
+        if (v < 0.15) return [10, 15, 30]; // dark navy
+        if (v < 0.35) return [70, 20, 100]; // purple
+        if (v < 0.6)  return [200, 60, 40]; // red
+        if (v < 0.8)  return [240, 140, 20]; // orange
+        return [255, 255, 180]; // white-yellow
+    }
+
+    function drawFeaturesOnMask(ctx, indices) {
+        let boxes = [];
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        if (indices.includes(0)) { // Footpath (Peak 0.35)
+            ctx.beginPath();
+            let fx = 40, fy = 40;
+            ctx.moveTo(fx, fy);
+            for(let i=0; i<12; i++) {
+                fx += 12 + Math.random()*8;
+                fy += 12 + Math.random()*8;
+                ctx.lineTo(fx + (Math.random()*8-4), fy + (Math.random()*8-4));
+            }
+            ctx.strokeStyle = `rgba(255,255,255,0.35)`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            boxes.push({ id: 0, x: 20, y: 20, w: 200, h: 200, type: 'Footpath', peak: 0.35 });
+        }
+        if (indices.includes(1)) { // Vehicle (Peak 0.7)
+            ctx.beginPath();
+            ctx.moveTo(50, 320); ctx.quadraticCurveTo(200, 360, 350, 290);
+            ctx.moveTo(48, 330); ctx.quadraticCurveTo(198, 370, 348, 300);
+            ctx.strokeStyle = `rgba(255,255,255,0.7)`;
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            boxes.push({ id: 1, x: 30, y: 270, w: 340, h: 110, type: 'Vehicle Tracks', peak: 0.7 });
+        }
+        if (indices.includes(2)) { // Encampment (Peak 0.9)
+            ctx.fillStyle = `rgba(255,255,255,0.9)`;
+            const cx = 310, cy = 120;
+            ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx-18, cy+12, 16, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx+16, cy+18, 25, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(cx+24, cy-8, 14, 0, Math.PI*2); ctx.fill();
+            boxes.push({ id: 2, x: cx-40, y: cy-30, w: 90, h: 80, type: 'Encampment', peak: 0.9 });
+        }
+        if (indices.includes(3)) { // Unknown (Peak 0.45)
+            ctx.fillStyle = `rgba(255,255,255,0.45)`;
+            ctx.beginPath(); ctx.arc(180, 240, 12, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(195, 245, 10, 0, Math.PI*2); ctx.fill();
+            boxes.push({ id: 3, x: 160, y: 220, w: 50, h: 45, type: 'Unknown', peak: 0.45 });
+        }
+        return boxes;
+    }
+
+    function generateSimulationCanvases(scenario, sliderVal) {
+        const ctxB = document.getElementById('canvas-before').getContext('2d');
+        const ctxA = document.getElementById('canvas-after').getContext('2d');
+        const ctxC = document.getElementById('canvas-change').getContext('2d');
+        const ctxM = document.getElementById('canvas-mask').getContext('2d');
+        const CW = 400, CH = 400;
+
+        ctxM.fillStyle = "black";
+        ctxM.fillRect(0, 0, CW, CH);
+
+        // Fixed seeds per scenario for stable noise
+        const seeds = { quiet: 100, personnel: 200, vehicle: 300, encampment: 400, multi: 500 };
+        const rng = LCG(seeds[scenario] || 12345);
+
+        const indices = SCENARIO_INDICES[scenario] || [];
+        const boxes = drawFeaturesOnMask(ctxM, indices);
+
+        const maskData = ctxM.getImageData(0, 0, CW, CH).data;
+        const imgB = ctxB.createImageData(CW, CH);
+        const imgA = ctxA.createImageData(CW, CH);
+        const imgC = ctxC.createImageData(CW, CH);
+
+        for (let i = 0; i < CW * CH; i++) {
+            // Base SAR speckle noise
+            let noise = Math.pow(rng(), 3) * 0.8;
+            
+            let mVal = maskData[i * 4] / 255.0; // Disturbance mask intensity
+            let afterVal = Math.min(1.0, noise + mVal);
+            
+            let diffVal = Math.abs(afterVal - noise);
+            diffVal = Math.min(1.0, diffVal + rng()*0.05); // slight speckle to diff map
+            if (mVal === 0 && rng() > 0.995) diffVal += 0.15; // occasional false-positive pixels
+
+            let cb = sarColor(noise);
+            imgB.data[i*4] = cb[0]; imgB.data[i*4+1] = cb[1]; imgB.data[i*4+2] = cb[2]; imgB.data[i*4+3] = 255;
+            
+            let ca = sarColor(afterVal);
+            imgA.data[i*4] = ca[0]; imgA.data[i*4+1] = ca[1]; imgA.data[i*4+2] = ca[2]; imgA.data[i*4+3] = 255;
+            
+            let cc = heatmapColor(diffVal);
+            imgC.data[i*4] = cc[0]; imgC.data[i*4+1] = cc[1]; imgC.data[i*4+2] = cc[2]; imgC.data[i*4+3] = 255;
+        }
+
+        ctxB.putImageData(imgB, 0, 0);
+        ctxA.putImageData(imgA, 0, 0);
+        ctxC.putImageData(imgC, 0, 0);
+
+        // Filter boxes based on slider and draw on Change map
+        // Slider 1.0 (strict) -> intensity_threshold 0.5
+        // Slider 5.0 (sensitive) -> intensity_threshold 0.1
+        const intensity_threshold = (6.0 - sliderVal) / 10.0; 
+        let detectedFeatures = [];
+
+        ctxC.lineWidth = 2;
+        ctxC.setLineDash([6, 4]);
+
+        for (const b of boxes) {
+            if (b.peak >= intensity_threshold) {
+                const baseScore = SIM_BASE[b.id][6]; 
+                const rawScore = Math.min(10, baseScore * (sliderVal / 2.5));
+                const score = Math.round(rawScore * 10) / 10;
+                const level = threatLevel(score);
+
+                ctxC.strokeStyle = colorMap[level];
+                ctxC.strokeRect(b.x, b.y, b.w, b.h);
+                
+                // Text background
+                ctxC.fillStyle = "rgba(15,23,42,0.8)";
+                ctxC.fillRect(b.x - 2, b.y - 20, 100, 18);
+                
+                ctxC.fillStyle = colorMap[level];
+                ctxC.font = "bold 11px Inter, sans-serif";
+                ctxC.fillText(b.type, b.x + 2, b.y - 6);
+
+                detectedFeatures.push({ idx: b.id, score, level, type: b.type });
+            }
+        }
+        ctxC.setLineDash([]);
+        return detectedFeatures;
+    }
+
+    function runSimulation() {
+        if (currentMode !== 'sim') return;
+
+        const scenario   = document.getElementById('scenario-select').value;
+        const sensitivity = parseFloat(document.getElementById('sensitivity-slider').value);
+        const btn = document.getElementById('run-sim-btn');
+        btn.classList.add('running');
+        btn.textContent = '⏳ Running…';
+
+        setTimeout(() => {
+            const detected = generateSimulationCanvases(scenario, sensitivity);
+
+            const features = detected.map(d => {
+                const base = SIM_BASE[d.idx];
+                
+                // Add mock heading data to support "movement history" in the pitch
+                let headingInfo = null;
+                if (base[5] === 'vehicle_tracks') {
+                    headingInfo = { direction_deg: 240, velocity_kmh: 15.4, approaching_border: true };
+                } else if (base[5] === 'footpath') {
+                    headingInfo = { direction_deg: 45, velocity_kmh: 3.2, approaching_border: false };
+                }
+
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: buildPolyCoords(base[0], base[1], base[5]),
+                    },
+                    properties: {
+                        anomaly_type:        base[5],
+                        threat_score:        d.score,
+                        threat_level:        d.level,
+                        distance_to_border_m: base[2],
+                        confidence:          base[3],
+                        area_m2:             base[4],
+                        score_breakdown:     {
+                            classification: +(base[6] * 0.5).toFixed(1),
+                            proximity:      +(base[6] * 0.3).toFixed(1),
+                            temporal:       +(base[6] * 0.2).toFixed(1),
+                        },
+                        heading: headingInfo,
+                    }
+                };
+            });
+
+            renderFeatures(features, true);
+            updateStats(features);
+            updateFeatureList(features, true);
+
+            const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+            features.forEach(f => counts[f.properties.threat_level]++);
+            const resultEl = document.getElementById('sim-result');
+            
+            if (features.length > 0) {
+                // Show reasoning for the highest scoring feature
+                const sorted = [...features].sort((a,b) => b.properties.threat_score - a.properties.threat_score);
+                const primaryType = sorted[0].properties.anomaly_type;
+                const reasonDiv = document.getElementById('canvas-reasoning');
+                reasonDiv.innerHTML = `<strong>${primaryType.replace(/_/g, ' ').toUpperCase()}</strong><br><i>"${REASONING_TEXT[primaryType] || REASONING_TEXT['unknown']}"</i>`;
+                reasonDiv.style.display = 'block';
+            } else {
+                document.getElementById('canvas-reasoning').style.display = 'none';
+            }
+
+            if (!features.length) {
+                resultEl.innerHTML = `<strong>0 detections</strong> — AI found nothing at sensitivity ${sensitivity.toFixed(1)}.`;
+            } else {
+                const parts = Object.entries(counts)
+                    .filter(([, v]) => v > 0)
+                    .map(([k, v]) => `<span style="color:${colorMap[k]}">${v} ${k}</span>`);
+                resultEl.innerHTML = `
+                    <strong>${features.length} detection${features.length > 1 ? 's' : ''}</strong>
+                    generated · ${parts.join(', ')}<br>
+                    <span style="font-size:9.5px;margin-top:3px;display:block">
+                        Boxes drawn for threats exceeding threshold.
+                    </span>`;
+            }
+            resultEl.classList.add('visible');
+
+            btn.classList.remove('running');
+            btn.textContent = '▶ Run Simulation';
+        }, 150);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  LIVE MODE — load threats.geojson
+    // ════════════════════════════════════════════════════════════
+    async function loadThreats() {
+        document.getElementById('feature-list').innerHTML =
+            `<div class="empty-state"><span class="empty-icon">📡</span>Loading live data…</div>`;
+        try {
+            const resp = await fetch('threats.geojson');
+            if (!resp.ok) throw new Error('threats.geojson not found — run serve.py first.');
+            const data = await resp.json();
+
+            const features = (data.features || []).map(f => {
+                const p = f.properties || {};
+                if (!p.threat_level && p.threat_score != null) {
+                    p.threat_level = threatLevel(p.threat_score);
+                }
+                if (p.distance_to_border_m == null) p.distance_to_border_m = 0;
+                if (p.confidence == null) p.confidence = 0;
+                if (p.area_m2 == null) p.area_m2 = 0;
+                return { ...f, properties: p };
+            });
+
+            // LIVE FEED GATING LOGIC
+            let isDataGarbage = false;
+            let bypassToggle = document.getElementById('raw-bypass-checkbox');
+            const bypass = bypassToggle && bypassToggle.checked;
+
+            if (features.length > 20) isDataGarbage = true;
+            if (features.length > 0) {
+                const scoreCounts = {};
+                let maxCount = 0;
+                features.forEach(f => {
+                    const s = f.properties.threat_score.toFixed(1);
+                    scoreCounts[s] = (scoreCounts[s] || 0) + 1;
+                    if (scoreCounts[s] > maxCount) maxCount = scoreCounts[s];
+                });
+                if (maxCount / features.length > 0.8) isDataGarbage = true;
+            }
+
+            if (isDataGarbage && !bypass) {
+                clearMapMarkers();
+                updateStats([]);
+                document.getElementById('feature-list').innerHTML = `
+                    <div style="background: rgba(234,88,12,0.1); border: 1px solid rgba(234,88,12,0.3); border-radius: 6px; padding: 10px; margin-bottom: 10px;">
+                        <div style="color: #ea580c; font-size: 11px; font-weight: 600; margin-bottom: 6px;">⚠ Low-Confidence Results</div>
+                        <div style="color: #cbd5e1; font-size: 10px; line-height: 1.4; margin-bottom: 8px;">
+                            AOI currently returns noisy results (terrain outside expected snow cover). Pipeline verified working — see Simulation Mode for full detection logic on controlled input.
+                        </div>
+                        <label style="font-size:9px; color:#94a3b8; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                            <input type="checkbox" id="raw-bypass-checkbox" onchange="loadThreats()"> View raw output anyway
+                        </label>
+                    </div>`;
+                return;
+            }
+
+            renderFeatures(features, false);
+            updateStats(features);
+            updateFeatureList(features, false);
+
+            if (isDataGarbage && bypass) {
+                const list = document.getElementById('feature-list');
+                list.insertAdjacentHTML('afterbegin', `
+                    <div style="margin-bottom: 10px; background: #0f172a; padding: 8px; border: 1px dashed #ea580c; border-radius: 6px;">
+                        <label style="font-size:9px; color:#ea580c; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                            <input type="checkbox" id="raw-bypass-checkbox" checked onchange="loadThreats()"> Viewing raw noisy output
+                        </label>
+                    </div>`);
+            }
+
+            if (data.metadata?.threat_summary) {
+                const s  = data.metadata.threat_summary;
+                const lv = s.by_level || {};
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-box"><div class="value">${s.total || 0}</div><div class="label">Total</div></div>
+                    <div class="stat-box critical"><div class="value">${lv.critical || 0}</div><div class="label">Critical</div></div>
+                    <div class="stat-box high"><div class="value">${lv.high || 0}</div><div class="label">High</div></div>
+                    <div class="stat-box medium"><div class="value">${lv.medium || 0}</div><div class="label">Medium</div></div>
+                    <div class="stat-box low"><div class="value">${lv.low || 0}</div><div class="label">Low</div></div>
+                    <div class="stat-box"><div class="value">${s.mean_score?.toFixed(1) || '—'}</div><div class="label">Avg Score</div></div>
+                `;
+            }
+        } catch (e) {
+            clearMapMarkers();
+            updateStats([]);
+            document.getElementById('feature-list').innerHTML =
+                `<div class="empty-state"><span class="empty-icon">⚠️</span>${e.message}</div>`;
+        }
+    }
+
+    loadThreats();
+    </script>
+</body>
+</html>

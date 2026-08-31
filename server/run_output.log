@@ -1,0 +1,9 @@
+﻿python : C:\Users\vbala\OneDrive\Desktop\SNOW TRACE\snowtrace\core\sar_difference.py:74: RuntimeWarning: divide by 
+zero encountered in divide
+At line:1 char:1
++ python server/serve.py 2>&1 | Out-File -FilePath "C:\Users\vbala\OneD ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\vbala\...tered in divide:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  1.0 - noise_variance / local_var,
